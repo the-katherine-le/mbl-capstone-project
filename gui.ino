@@ -1,209 +1,315 @@
-#include <UTFT.h>
-#include <URTouch.h>
+#if 1
 
-//Model Parameters//
-UTFT myGLCD(ILI9486, 38, 39, 40, 41);
-URTouch  myTouch( 6, 5, 4, 3, 2);
+#include <Adafruit_GFX.h>
+#include <MCUFRIEND_kbv.h>
+MCUFRIEND_kbv tft;
+#include <TouchScreen.h>
+#define MINPRESSURE 200
+#define MAXPRESSURE 1000
 
-//Declare Fonts//
-extern uint8_t SmallFont[];
-extern uint8_t BigFont[];
-extern uint8_t SevenSegNumFont[];
+// ALL Touch panels and wiring is DIFFERENT
+// copy-paste results from TouchScreen_Calibr_native.ino
+const int XP = 8, XM = A2, YP = A3, YM = 9; //320x480 ID=0x9487
+const int TS_LEFT = 194, TS_RT = 937, TS_TOP = 963, TS_BOT = 200;
 
-int x,y; //coordinate variables
-int currentPage; //current page
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
 
-//Define the x,y coordinates of the elements on HOME SCREEN//
+Adafruit_GFX_Button run_btn, pause_btn, reset_btn, setup_btn;
+Adafruit_GFX_Button flow_inc_btn, flow_dec_btn, carriage_inc_btn, carriage_dec_btn, return_home_btn;
 
-int statusMsgX1 = 10; //start corner
-int statusMsgY1 = 10;
-int statusMsgX2 = 470; //end corner
-int statusMsgY2 = 30;
+bool buttonPress = true;
 
-int runButtonX1 = 10; //start corner
-int runButtonY1 = 40;
-int runButtonX2 = 150; //end corner
-int runButtonY2 = 240;
-
-int pauseButtonX1 = 170;
-int pauseButtonY1 = 40;
-int pauseButtonX2 = 310;
-int pauseButtonY2 = 240;
-
-int resetButtonX1 = 330;
-int resetButtonY1 = 40;
-int resetButtonX2 = 470;
-int resetButtonY2 = 240;
-
-int connectButtonX1 = 10;
-int connectButtonY1 = 250;
-int connectButtonX2 = 230;
-int connectButtonY2 = 310;
-
-int setupButtonX1 = 250;
-int setupButtonY1 = 250;
-int setupButtonX2 = 470;
-int setupButtonY2 = 310;
-
-//Define the x,y coordinates of the buttons on SETUP SCREEN//
-
-//Declare Variables Related to the Motor here//
-
-void setup() {
-  ////Set up LCD////
-  myGLCD.InitLCD();
-  myGLCD.clrScr();
-
-  myTouch.InitTouch();
-  myTouch.setPrecision(PREC_MEDIUM);
-
-  ////Draw the GUI on the screen////
-  drawHomeScreen();
-  // 0 for home screen, 1 for setup screen
-  currentPage = 0;
-
-  ////Define Pin Modes////
-  //pinMode()
+int pixel_x, pixel_y;     //Touch_getXY() updates global vars
+bool Touch_getXY(void)
+{
+  TSPoint p = ts.getPoint();
+  pinMode(YP, OUTPUT);      //restore shared pins
+  pinMode(XM, OUTPUT);
+  digitalWrite(YP, HIGH);   //because TFT control pins
+  digitalWrite(XM, HIGH);
+  bool pressed = (p.z > MINPRESSURE && p.z < MAXPRESSURE);
+  if (pressed) {
+    pixel_x = map(p.y, TS_TOP, TS_BOT, 0, tft.width()); //.kbv makes sense to me
+    pixel_y = map(p.x, TS_RT, TS_LEFT, 0, tft.height());
+  }
+  return pressed;
 }
-//Our main loop here//
-void loop() {
-  //We are on the home page
-  if (currentPage == 0) {
-    if (myTouch.dataAvailable()) {
-      myTouch.read();
-      //Get the coordinates of where the screen has been pressed
-      x = myTouch.getX(); // X coordinate
-      y = myTouch.getY(); // Y coordinate
 
-      //If we press the Run Button
-      if ((x >= runButtonX1) && (y >= runButtonY1) && (x <= runButtonX2) && (y <= runButtonY2)) {
-        //Highlight the button to indicate we've pressed RUN
-        highlightFrame(runButtonX1, runButtonY1, runButtonX2, runButtonY2);
-        currentPage = 0; //We are on the home page still
-        myGLCD.clrScr();
-        updateStatus("RUNNING MOTOR",0,0,0);
-        //Motor run function here
+//ADAFRUIT DEFAULT
+#define BLACK   0x0000
+#define BLUE    0x001F
+#define RED     0xF800
+#define GREEN   0x07E0
+#define CYAN    0x07FF
+#define MAGENTA 0xF81F
+#define YELLOW  0xFFE0
+#define WHITE   0xFFFF
+
+//https://flatuicolors.com/palette/nl
+//Convert to proper hex: http://www.rinkydinkelectronics.com/calc_rgb565.php
+//ORANGE-YELLOW-REDS
+#define SUNFLOWER 0xFE02
+#define RADIANT_YELLOW 0xF4E3
+#define PUFFINS_BILL 0xEAC4
+#define RED_PIGMENT 0xE904
+
+//GREENS
+#define ENERGOS 0xC727
+#define ANDROID_GREEN 0xA647
+#define PIXELATED_GRASS 0x04A6
+#define TURKISH_AQUA 0x030C
+
+//BLUES
+#define BLUE_MARTINA 0x1658
+#define MEDITERRANEAN_SEA 0x1454
+#define MERCHANT_MARINE_BLUE 0x029B
+#define K_LEAGUES_UNDER_THE_SEA 0x18AC
+
+//PINKS-PURPLES
+#define LAVENDER_ROSE 0xFD3B
+#define LAVENDER_TEA 0xDC1F
+#define FORGOTTEN_PURPLE 0x9C1F
+#define CIRCUMORBITAL_RING 0x52D7
+
+//REDS-MAGENTA
+#define BARA 0xEA6C
+#define VERY_BERRY 0xB1AE
+#define HOLLY 0x81AE
+#define MAGENTA_PURPLE 0x68EA
+
+//FUNCTION DECLARATIONS
+bool initHomeScreen(void);
+bool initSetupScreen(void);
+void drawHomeScreen(void);
+void drawSetupScreen(void);
+
+//Screen setup
+int state = 0; //0 for home screen, 1 for setup screen
+bool drawHome = false; //initial setup
+bool drawSetup = false; //inital setup
+
+void setup(void)
+{
+  Serial.begin(9600);
+  uint16_t ID = tft.readID();
+  Serial.print("TFT ID = 0x");
+  Serial.println(ID, HEX);
+  Serial.println("Calibrate for your Touch Panel");
+  if (ID == 0xD3D3) ID = 0x9486; // write-only shield
+  tft.begin(ID);
+  tft.setRotation(1);            //LANDSCAPE
+  tft.fillScreen(BLACK);
+}
+
+void loop(void)
+{
+    if (state == 0) { //HOME SCREEN
+      if (drawHome == false) {
+        drawHome = initHomeScreen();
       }
-      //If we press the Pause Button
-      if ((x >= pauseButtonX1) && (y >= pauseButtonY1) && (x <= pauseButtonX2) && (y <= pauseButtonY2)) {
-        //Highlight the button to indicate we've pressed PAUSE
-        highlightFrame(pauseButtonX1, pauseButtonY1, pauseButtonX2, pauseButtonY2);
-        currentPage = 0; //We are on the home page still
-        myGLCD.clrScr();
-        updateStatus("MOTOR PAUSED",1,1,1);
-        //Motor pause function here
+      else {
+        drawHomeScreen();
       }
-      //If we press the Reset Button
-      if ((x >= resetButtonX1) && (y >= resetButtonY1) && (x <= resetButtonX2) && (y <= resetButtonY2)) {
-        //Highlight the button to indicate we've pressed RESET
-        highlightFrame(resetButtonX1, resetButtonY1, resetButtonX2, resetButtonY2);
-        currentPage = 0; //We are on the home page still
-        myGLCD.clrScr();
-        updateStatus("RESETTING",2,2,2);
-        //Motor reset function here
-      }
-      //If we press the Connect to Controller Button
-      if ((x >= connectButtonX1) && (y >= connectButtonY1) && (x <= connectButtonX2) && (y <= connectButtonY2)) {
-        //Highlight the button to indicate we've pressed CONNECT TO CONTROLLER
-        highlightFrame(connectButtonX1, connectButtonY1, connectButtonX2, connectButtonY2);
-        currentPage = 0; //We are on the home page still
-        myGLCD.clrScr();
-        updateStatus("CONNECTING...",3,3,3);
-        //Connect to controller button here
-      }
-      //If we press the Setup Button
-      if ((x >= setupButtonX1) && (y >= setupButtonY1) && (x <= setupButtonX2) && (y <= setupButtonY2)) {
-        //Highlight the button to indicate we've pressed SETUP
-        highlightFrame(setupButtonX1, setupButtonY1, setupButtonX2, setupButtonY2);
-        currentPage = 1; //We are now on the setup page
-        myGLCD.clrScr();
-        updateStatus("CHANGE SETUP",4,4,4);
-        drawSetupScreen();
-      }
+    }
+  if (state == 1) { //SETUP SCREEN
+    if (drawSetup == false) {
+      drawSetup = initSetupScreen();
+    }
+    else {
+      drawSetupScreen();
     }
   }
 }
 
-//SETUP THE HOME SCREEN//
-void drawHomeScreen() {
+bool initHomeScreen(void) {
+  //http://adafruit.github.io/Adafruit-GFX-Library/html/class_adafruit___g_f_x___button.html#a0cb6999a324b9999a1f4b610e36b16b6
+  //Adafruit_GFX_Button::initButton(gfx,x,y,w,h,outline,fill,textcolor,label,textsize)
+  //x: x-coordinate of button center; y: y-coordinate of button center; w: width; h: height
+
+  run_btn.initButton(&tft,  85, 155, 140, 170, WHITE, ENERGOS, BLACK, "RUN", 3);
+  pause_btn.initButton(&tft, 240, 155, 140, 170, WHITE, RADIANT_YELLOW, BLACK, "PAUSE", 3);
+  reset_btn.initButton(&tft, 395 155, 140, 170, WHITE, BLUE_MARTINA, BLACK, "RESET", 3);
+  setup_btn.initButton(&tft, 240, 285, 460, 60, WHITE, BARA, BLACK, "SETUP", 3);
+
+  //  run_btn_pressed.initButton(&tft,  75, 150, 140, 180, WHITE, ANDROID_GREEN, BLACK, "RUN", 2);
+  //  pause_btn_pressed.initButton(&tft, 240, 150, 140, 180, WHITE, PUFFINS_BILL, BLACK, "PAUSE", 2);
+  //  reset_btn_pressed.initButton(&tft,  400, 150, 140, 180, WHITE, MEDITERRANEAN_SEA, BLACK, "RESET", 2);
+  //  setup_btn_pressed.initButton(&tft, 240, 280, 460, 60, WHITE, VERY_BERRY, BLACK, "SETUP", 2);
+
+  run_btn.drawButton(false);
+  pause_btn.drawButton(false);
+  reset_btn.drawButton(false);
+  setup_btn.drawButton(false);
+
+  //  run_btn_pressed.drawButton(false);
+  //  pause_btn_pressed.drawButton(false);
+  //  reset_btn_pressed.drawButton(false);
+  //  setup_btn_pressed.drawButton(false);
+
+  //DRAW GRAPHICS
+  tft.drawRect(0,0,480,320,WHITE);//menu frame
+  tft.drawRect(10,65,150,175,WHITE);//frame for run button
+  tft.drawRect(165,65,150,175,WHITE);//frame for pause button
+  tft.drawRect(320,65,150,175,WHITE);//frame for reset button
+  tft.drawRect(0,250,480,70,WHITE);//frame for setup button
+
+  //STATUS MESSAGE STRIP
+  //void fillRect(uint16_t x0, uint16_t y0, uint16_t w, uint16_t h, uint16_t color);
+  //[x0, y0] coordinates of top left corner of rectangle; [w,h]: width and height of rectangle
+  tft.fillRect(0, 0, 480, 20, WHITE);
+  tft.setCursor(220, 5);
+  tft.setTextColor(BLACK);
+  tft.setTextSize(2);
+  tft.setTextWrap(true);
+  tft.println("HOME");
+
+  //STATUS
+  tft.drawRect(5,250,480,70,WHITE);//frame for setup button
   
-  //Status message//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (statusMsgX1, statusMsgY1, statusMsgX2, statusMsgY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (statusMsgX1, statusMsgY1, statusMsgX2, statusMsgY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("CHOOSE OPTION...", CENTER, 102); // Prints the string
-  
-  //Run Button//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (runButtonX1, runButtonY1, runButtonX2, runButtonY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (runButtonX1, runButtonY1, runButtonX2, runButtonY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("RUN", CENTER, 102); // Prints the string
-
-  //Pause Button//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (pauseButtonX1, pauseButtonY1, pauseButtonX2, pauseButtonY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (pauseButtonX1, pauseButtonY1, pauseButtonX2, pauseButtonY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("PAUSE", CENTER, 102); // Prints the string
-
-  //Reset Button//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (resetButtonX1, resetButtonY1, resetButtonX2, resetButtonY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (resetButtonX1, resetButtonY1, resetButtonX2, resetButtonY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("REST", CENTER, 102); // Prints the string
-
-  //Connect to Controller Button//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (connectButtonX1, connectButtonY1, connectButtonX2, connectButtonY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (connectButtonX1, connectButtonY1, connectButtonX2, connectButtonY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("CONNECT TO CONTROLLER", CENTER, 102); // Prints the string
-
-  //Setup Button//
-  myGLCD.setColor(185, 224, 165); // Sets green color
-  myGLCD.fillRoundRect (setupButtonX1, setupButtonY1, setupButtonX2, setupButtonY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (setupButtonX1, setupButtonY1, setupButtonX2, setupButtonY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print("SETUP", CENTER, 102); // Prints the string
-
+  return true;
 }
 
-//SETUP MENU//
-void drawSetupScreen() {
-  //
+bool initSetupScreen(void) {
+  //Pump flow rate, //print carriage speed
+  flow_inc_btn.initButton(&tft,  70, 195, 90, 60, WHITE, ENERGOS, BLACK, "+", 4);
+  flow_dec_btn.initButton(&tft, 170, 195, 90, 60, WHITE, RADIANT_YELLOW, BLACK, "-", 4);
+  carriage_inc_btn.initButton(&tft,  310, 195, 90, 60, WHITE, ENERGOS, BLACK, "+", 4);
+  carriage_dec_btn.initButton(&tft, 410, 195, 90, 60, WHITE, RADIANT_YELLOW, BLACK, "-", 4);
+  return_home_btn.initButton(&tft,  240, 280, 200, 60, WHITE, BLUE_MARTINA, BLACK, "HOME", 2);
+
+  flow_inc_btn.drawButton(false);
+  flow_dec_btn.drawButton(false);
+  carriage_inc_btn.drawButton(false);
+  carriage_dec_btn.drawButton(false);
+  return_home_btn.drawButton(false);
+
+  //SETUP SCREEN GRAPHICS
+  tft.fillRect(0,0,480,25,WHITE);
+  tft.setCursor(210,5);
+  tft.setTextColor(BLACK);
+  tft.setTextSize(2);
+  tft.setTextWrap(true);
+  tft.println("SETUP");
+
+  //BORDER FOR PAGE
+  tft.drawRect(5,20,470,300,WHITE);
+  
+  //FLOW RATE GRAPHICS
+  tft.drawRect(15,45,210,195,WHITE);//frame
+  tft.setCursor(20, 50);
+  tft.setTextColor(WHITE,BLACK);
+  tft.setTextSize(2);
+  tft.setTextWrap(true);
+  tft.println("FLOW RATE uL/s");
+  tft.drawRect(20,160,200,70,WHITE);//frame for button
+
+  //FLOW RATE TEXT BOX
+  tft.fillRect(20,80,200,80, WHITE);
+  tft.setCursor(20, 90);
+  tft.setTextColor(BLACK);
+  tft.setTextSize(5);
+  tft.setTextWrap(true);
+  //INSERT FUNCTION HERE TO UPDATE THE TEXT EVERY TIME IT IS INC/DEC
+  tft.println("0.00");
+
+  //CARRIAGE SPEED GRAPHICS
+  tft.drawRect(255,45,210,195,WHITE);//Big frame
+  tft.setCursor(260, 50);
+  tft.setTextColor(WHITE,BLACK);
+  tft.setTextSize(2);
+  tft.setTextWrap(true);
+  tft.println("CARRIAGE SPD mm/s");
+  tft.drawRect(260,160,200,70,WHITE);//frame for button
+
+  //CARRIAGE SPEED TEXT BOX
+  tft.fillRect(260, 80, 200, 80, WHITE);
+  tft.setCursor(260, 90);
+  tft.setTextColor(BLACK);
+  tft.setTextSize(5);
+  tft.setTextWrap(true);
+  //INSERT FUNCTION HERE TO UPDATE THE TEXT EVERY TIME IT IS INC/DEC
+  tft.println("0.00");
+
+  return true;
 }
-//Highlights the button when it is pressed//
-void highlightFrame(int x1, int y1, int x2, int y2) { 
-  myGLCD.setColor(255, 0, 0); //Highlights it in red
-  myGLCD.drawRoundRect (x1, y1, x2, y2);
-  while (myTouch.dataAvailable()) {
-    myTouch.read();
-    myGLCD.setColor(255, 255, 255);
-    myGLCD.drawRoundRect (x1, y1, x2, y2);
+
+void drawHomeScreen(void) {
+
+  bool down = Touch_getXY();
+  buttonPress = true;
+  //CHECK TO SEE IF ANY OF THE BUTTONS HAVE BEEN PRESSED
+  run_btn.press(down && run_btn.contains(pixel_x, pixel_y));
+  pause_btn.press(down && pause_btn.contains(pixel_x, pixel_y));
+  reset_btn.press(down && reset_btn.contains(pixel_x, pixel_y));
+  setup_btn.press(down && setup_btn.contains(pixel_x, pixel_y));
+
+  //CONFIGURING BUTTONS
+  if (run_btn.justReleased())
+    run_btn.drawButton();
+  if (pause_btn.justReleased())
+    pause_btn.drawButton();
+  if (reset_btn.justReleased())
+    reset_btn.drawButton();
+  if (setup_btn.justReleased())
+    setup_btn.drawButton();
+
+  //IF ANY OF THE BUTTONS ARE PRESSED
+  //CHANGE THE STATUS MESSAGE
+  if (run_btn.justPressed()) {
+    run_btn.drawButton(true);
+    //UPDATE STATUS MESSAGE STRIP
+    //void fillRect(uint16_t x0, uint16_t y0, uint16_t w, uint16_t h, uint16_t color);
+    //[x0, y0] coordinates of top left corner of rectangle; [w,h]: width and height of rectangle
+    tft.fillRect(10, 10, 460, 30, ANDROID_GREEN);
+    tft.setCursor(10, 15);
+    tft.setTextColor(BLACK);
+    tft.setTextSize(3);
+    tft.setTextWrap(true);
+    tft.println("RUNNING...");
   }
+  if (pause_btn.justPressed()) {
+    pause_btn.drawButton(true);
+    tft.fillRect(10, 10, 460, 30, PUFFINS_BILL);
+    tft.setCursor(10, 10);
+    tft.setTextColor(BLACK, WHITE);
+    tft.setTextSize(3);
+    tft.setTextWrap(true);
+    tft.println("PAUSED");
+  }
+  if (reset_btn.justPressed()) {
+    reset_btn.drawButton(true);
+    tft.fillRect(10, 10, 460, 30, MEDITERRANEAN_SEA);
+    tft.setCursor(10, 10);
+    tft.setTextColor(BLACK, WHITE);
+    tft.setTextSize(3);
+    tft.setTextWrap(true);
+    tft.println("RESETTING");
+    //Function here to zero the pump...
+  }
+  if (setup_btn.justPressed()) {
+    setup_btn.drawButton(true);
+    //CALL SETUP MENU FUNCTION HERE
+    tft.fillRect(10, 10, 460, 30, MAGENTA_PURPLE);
+    tft.setCursor(10, 10);
+    tft.setTextColor(BLACK, WHITE);
+    tft.setTextSize(3);
+    tft.setTextWrap(true);
+    tft.println("CONFIGURE SETUP");
+  }
+
 }
-//Updates the status strip with appropriate color and message//
-void updateStatus(String message, int rgb1, int rgb2, int rgb3) { 
-  myGLCD.setColor(rgb1, rgb2, rgb3); // 
-  myGLCD.fillRoundRect (statusMsgX1, statusMsgY1, statusMsgX2, statusMsgY2); // Draws filled rounded rectangle
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.drawRoundRect (statusMsgX1, statusMsgY1, statusMsgX2, statusMsgY2); // Draws rounded rectangle without a fill, so the overall appearance of the button looks like it has a frame
-  myGLCD.setFont(BigFont); // Sets the font to big
-  myGLCD.setBackColor(16, 167, 103); // Sets the background color of the area where the text will be printed to green, same as the button
-  myGLCD.print(message, CENTER, 102); // Prints the string
+
+void drawSetupScreen(void) {
+  bool down = Touch_getXY();
+  //CHECK TO SEE IF ANY OF THE BUTTONS HAVE BEEN PRESSED
+  flow_inc_btn.press(down && flow_inc_btn.contains(pixel_x, pixel_y));
+  flow_dec_btn.press(down && flow_dec_btn.contains(pixel_x, pixel_y));
+  carriage_inc_btn.press(down && carriage_inc_btn.contains(pixel_x, pixel_y));
+  carriage_dec_btn.press(down && carriage_dec_btn.contains(pixel_x, pixel_y));
+  return_home_btn.press(down && return_home_btn.contains(pixel_x, pixel_y));
 }
+void updateStatusMsg(void) {
+
+}
+
+#endif
